@@ -32,7 +32,7 @@ class CMD(Enum):
 CONFIG_HEADER = '5aa5'
 CONFIG_STATUS = '0000'
 CONFIG_FOOTER = 'aaee'
-ADC_PARAMS = {'chirps': 1,  # 32
+ADC_PARAMS = {'chirps': 8,  # 32
               'rx': 4,
               'tx': 2,
               'samples': 64,
@@ -44,6 +44,8 @@ BYTES_IN_PACKET = 1456
 # DYNAMIC
 BYTES_IN_FRAME = (ADC_PARAMS['chirps'] * ADC_PARAMS['rx'] * ADC_PARAMS['tx'] *
                   ADC_PARAMS['IQ'] * ADC_PARAMS['samples'] * ADC_PARAMS['bytes'])
+
+
 BYTES_IN_FRAME_CLIPPED = (BYTES_IN_FRAME // BYTES_IN_PACKET) * BYTES_IN_PACKET
 PACKETS_IN_FRAME = BYTES_IN_FRAME / BYTES_IN_PACKET
 PACKETS_IN_FRAME_CLIPPED = BYTES_IN_FRAME // BYTES_IN_PACKET
@@ -104,12 +106,14 @@ class DCA1000:
 
         self.data = []
         self.packet_count = []
+        self.packet_fail=0
         self.byte_count = []
 
         self.frame_buff = []
 
         self.curr_buff = None
         self.last_frame = None
+
 
         self.lost_packets = None
 
@@ -162,6 +166,7 @@ class DCA1000:
             Full frame as array if successful, else None
 
         """
+        
         # Configure
         self.data_socket.settimeout(timeout)
 
@@ -170,29 +175,44 @@ class DCA1000:
 
         # Wait for start of next frame
         while True:
-            packet_num, byte_count, packet_data = self._read_data_packet()
-            if byte_count % BYTES_IN_FRAME_CLIPPED == 0:
-                packets_read = 1
-                ret_frame[0:UINT16_IN_PACKET] = packet_data
-                break
+            try:
+                packet_num, byte_count, packet_data = self._read_data_packet()
+                if byte_count % BYTES_IN_FRAME_CLIPPED == 0:
+                    packets_read = 1
+                    ret_frame[0:UINT16_IN_PACKET] = packet_data
+                    break
+            except :
+                self.packet_fail += 1
+                print(f"Packet read failed_1:{self.packet_fail}")
 
         # Read in the rest of the frame            
         while True:
-            packet_num, byte_count, packet_data = self._read_data_packet()
-            packets_read += 1
-
-            if byte_count % BYTES_IN_FRAME_CLIPPED == 0:
-                self.lost_packets = PACKETS_IN_FRAME_CLIPPED - packets_read
-                return ret_frame
-
-            curr_idx = ((packet_num - 1) % PACKETS_IN_FRAME_CLIPPED)
             try:
-                ret_frame[curr_idx * UINT16_IN_PACKET:(curr_idx + 1) * UINT16_IN_PACKET] = packet_data
-            except:
-                pass
+                packet_num, byte_count, packet_data = self._read_data_packet()
+                packets_read += 1
 
-            if packets_read > PACKETS_IN_FRAME_CLIPPED:
-                packets_read = 0
+                if byte_count % BYTES_IN_FRAME_CLIPPED == 0:
+                    self.lost_packets = PACKETS_IN_FRAME_CLIPPED - packets_read
+                    return ret_frame
+
+                curr_idx = ((packet_num - 1) % PACKETS_IN_FRAME_CLIPPED)
+                try:
+                    ret_frame[curr_idx * UINT16_IN_PACKET:(curr_idx + 1) * UINT16_IN_PACKET] = packet_data
+                except :
+                    # pass
+                    self.packet_fail +=1
+                    print(f"Packet read failed_2:{self.packet_fail}")
+
+
+                if packets_read > PACKETS_IN_FRAME_CLIPPED:
+                    packets_read = 0
+            except :
+                self.packet_fail +=1
+                print(f"Packet read failed_3:{self.packet_fail}")
+
+            
+
+    
 
     def _send_command(self, cmd, length='0000', body='', timeout=1):
         """Helper function to send a single commmand to the FPGA
@@ -228,12 +248,14 @@ class DCA1000:
 
         """
         data, addr = self.data_socket.recvfrom(MAX_PACKET_SIZE)
+        # print(f"Raw UDP packet data: {len(data)}", data.hex())
         packet_num = struct.unpack('<1l', data[:4])[0]
         byte_count = struct.unpack('>Q', b'\x00\x00' + data[4:10][::-1])[0]
         packet_data = np.frombuffer(data[10:], dtype=np.uint16)
 
         # print("Raw UDP packet data:", data.hex())
-        # print("Packet number:", packet_num)
+        print(f"Length of received data packet: {len(data)} bytes : {packet_num} Byte count: {byte_count} Packet data: {len(packet_data)}")
+        # print("Packet number :", packet_num)
         # print("Byte count:", byte_count)
         # print("Packet data (uint16 array):", packet_data)
         return packet_num, byte_count, packet_data
@@ -289,23 +311,23 @@ if __name__ == "__main__":
 
     # Start time
     start_time = time.time()
-    frame_count = 0 
-    # Read data for 10 seconds
-    while time.time() - start_time < 0.5:
-        adc_data = dca.read(timeout=.1)
 
-        if adc_data is not None:
-            frame_count+=1
-            # print("Frame data received successfully.")
+    # Read data for 10 seconds
+    # while time.time() - start_time <= 8.00175:
+    while time.time() - start_time <= 8:
+        adc_data = dca.read(0.1)
+
+        # if adc_data is not None:
+        #     print("Frame data received successfully.")
             # print("Raw frame data:", adc_data)
             
             # print(frame)
 
-            print(f"Raw frame data length: {frame_count} :{len(adc_data)}")
+        
             
-            print("Raw frame data:", adc_data)
-            frame = dca.organize(adc_data, ADC_PARAMS['chirps'], 8,ADC_PARAMS['samples']) # TX*RX
-            print("rame:", frame)
+            #print("Raw  data:", adc_data)
+        frame = dca.organize(adc_data, ADC_PARAMS['chirps'], 8,ADC_PARAMS['samples']) # TX*RX
+        print("rame:", frame)
             # hex_frame_data = [hex(x) for x in frame_data]
             # print(f"Hex frame {frame_count} data: {hex_frame_data}")
             # hex_frame_data = [f"{x:04x}" for x in frame_data]
@@ -320,12 +342,13 @@ if __name__ == "__main__":
 
             
 
-        else:
-            print("Failed to receive frame data.")
+        # else:
+        #     print("Failed to receive frame data.")
 
-    # Stop recording    
+    # Stop recording
+    print(f"Raw  data length: {len(adc_data)}")    
     response = dca._send_command(CMD.RECORD_STOP_CMD_CODE)
     print(f"Response for RECORD_STOP_CMD_CODE: {response.hex() if isinstance(response, bytes) else response}")
-
+    print(f"Packet fails: {dca.packet_fail}")
     # Close the connection
     dca.close()

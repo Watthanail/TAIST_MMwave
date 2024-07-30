@@ -34,7 +34,7 @@ class CMD(Enum):
 CONFIG_HEADER = '5aa5'
 CONFIG_STATUS = '0000'
 CONFIG_FOOTER = 'aaee'
-ADC_PARAMS = {'chirps': 2,  # 32
+ADC_PARAMS = {'chirps': 8,  # 32
               'rx': 4,
               'tx': 2,
               'samples': 64,
@@ -300,19 +300,19 @@ if __name__ == "__main__":
     file_path = os.path.join(directory, filename)
     with open(file_path, 'w') as file:
 
-        while time.time() - start_time < 0.5:
+        while time.time() - start_time <=8:
             adc_data = dca.read(timeout=.1)
 
             if adc_data is not None:
-                frame_count+=1
+                
                 # print("Frame data received successfully.")
                 # print("Raw frame data:", adc_data)
                 
                 # print(frame)
 
-                print(f"Raw frame data length: {frame_count} :{len(adc_data)}")
                 
-                print("Raw frame data:", adc_data)
+                
+                # print("Raw frame data:", adc_data)
                 frame = dca.organize(adc_data, ADC_PARAMS['chirps'], ADC_PARAMS['rx'],ADC_PARAMS['samples'])
                 print("rame:", frame)
 
